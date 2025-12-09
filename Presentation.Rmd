@@ -1,0 +1,19 @@
+---
+title: "Mon Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    theme: cosmo
+runtime: shiny
+---
+
+
+```{r dashboard acp}
+shiny::runApp("acp_dashboard_test.R")
+```
+
+
+```{r dashboard acm}
+shiny::runApp("acm_dashboard_test2.R")
+```
+
