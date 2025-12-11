@@ -1,0 +1,390 @@
+---
+title: "Analyse de la démographie des professionnels de santé en France"
+subtitle: "ACP et ACM sur les données départementales"
+author: "Fadli Aaron - Université de Tours — Master 1 (2025-2026)"
+date: "`r format(Sys.Date(), '%d/%m/%Y')`"
+output: 
+  beamer_presentation:
+    theme: "Madrid"
+    colortheme: "default"
+    fonttheme: "professionalfonts"
+    slide_level: 2
+    toc: false
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{longtable}
+  - \usepackage{array}
+  - \usepackage{multirow}
+  - \usepackage{float}
+  - \usepackage{xcolor}
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, 
+  message = FALSE, 
+  warning = FALSE,
+  fig.align = 'center',
+  out.width = '90%'
+)
+
+# Chargement des packages
+library(tidyverse)
+library(FactoMineR)
+library(factoextra)
+library(ggplot2)
+library(ggrepel)
+library(cluster)
+
+# Thème personnalisé pour les graphiques
+theme_set(theme_minimal(base_size = 11))
+```
+```{r data_prep, include=FALSE}
+# Charger la base de données ACP
+base_acp <- readRDS("./data_propre/base_acp.rds")
+
+# Population des départements (INSEE 2024)
+pop_dept <- tribble(
+  ~departement, ~population,
+  "01", 664500, "02", 529500, "03", 334800, "04", 166800, "05", 141700,
+  "06", 1094300, "07", 331500, "08", 270900, "09", 154200, "10", 311000,
+  "11", 379100, "12", 282200, "13", 2043100, "14", 696400, "15", 144100,
+  "16", 351500, "17", 664000, "18", 302500, "19", 238600, "21", 537900,
+  "22", 614500, "23", 114300, "24", 417300, "25", 596900, "26", 524200,
+  "27", 603200, "28", 434300, "29", 937100, "2A", 161900, "2B", 183100,
+  "30", 774800, "31", 1434300, "32", 195600, "33", 1671100, "34", 1221800,
+  "35", 1107900, "36", 219200, "37", 613400, "38", 1298600, "39", 260700,
+  "40", 418500, "41", 330000, "42", 771500, "43", 228900, "44", 1471500,
+  "45", 691300, "46", 175800, "47", 338500, "48", 76800, "49", 824900,
+  "50", 496300, "51", 573800, "52", 173800, "53", 306200, "54", 735600,
+  "55", 172100, "56", 785900, "57", 1046200, "58", 199500, "59", 2610700,
+  "60", 832400, "61", 276900, "62", 1470200, "63", 678800, "64", 693400,
+  "65", 230100, "66", 488000, "67", 1153200, "68", 769400, "69", 1927900,
+  "70", 236100, "71", 556100, "72", 570600, "73", 442700, "74", 863300,
+  "75", 2139200, "76", 1265700, "77", 1432900, "78", 1446400, "79", 378200,
+  "80", 574100, "81", 395100, "82", 261400, "83", 1114800, "84", 571300,
+  "85", 706400, "86", 440300, "87", 377000, "88", 360700, "89", 335800,
+  "90", 138800, "91", 1351900, "92", 1644700, "93", 1658200, "94", 1418300,
+  "95", 1276500, "971", 380900, "972", 366900, "973", 295500, "974", 876000,
+  "976", 310000
+)
+
+# Exclusion des métropoles majeures
+dept_a_exclure <- c("13", "59", "69", "75")
+
+# Base normalisée par population
+base_acp_normalized <- base_acp %>%
+  filter(annee == 2024, !departement %in% dept_a_exclure) %>%
+  left_join(pop_dept, by = "departement") %>%
+  group_by(departement) %>%
+  summarise(
+    effectif_pour_100k = sum(effectif, na.rm = TRUE) / first(population) * 100000,
+    densite_moyenne = mean(densite, na.rm = TRUE),
+    nb_total_pour_100k = first(nb_total) / first(population) * 100000,
+    nb_hop_pour_100k = first(nb_hop) / first(population) * 100000,
+    nb_prives_pour_100k = first(nb_prives) / first(population) * 100000,
+    nb_ambu_pour_100k = first(nb_ambu) / first(population) * 100000,
+    nb_had_pour_100k = first(nb_had) / first(population) * 100000,
+    nb_msp_pour_100k = first(nb_msp) / first(population) * 100000,
+    .groups = "drop"
+  ) %>%
+  ungroup() %>%
+  column_to_rownames("departement")
+
+# ACP
+res_pca_norm <- PCA(base_acp_normalized, scale.unit = TRUE, graph = FALSE)
+
+# Clustering
+res_hcpc_norm <- HCPC(res_pca_norm, nb.clust = -1, graph = FALSE)
+
+# ACM
+base_acm <- readRDS("./datafinal/base_acm.rds")
+res_mca <- MCA(base_acm, quali.sup = 1:3, graph = FALSE)
+```
+
+# Introduction
+
+## Contexte et objectifs
+
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\textbf{Problématique}
+\begin{itemize}
+  \item Analyse de la démographie des professionnels de santé
+  \item Données départementales 2024 (hors Paris, Lyon, Marseille, Lille)
+  \item 97 départements analysés
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{Objectifs}
+\begin{enumerate}
+  \item Identifier les disparités territoriales
+  \item Caractériser les profils sanitaires
+  \item Typologie des départements
+\end{enumerate}
+\end{column}
+
+\begin{column}{0.4\textwidth}
+\textbf{Méthodologie}
+\begin{itemize}
+  \item ACP normalisée
+  \item Clustering hiérarchique
+  \item ACM sur modalités
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{Source}
+\begin{itemize}
+  \item AMELI - Data.gouv.fr
+  \item INSEE (populations)
+\end{itemize}
+\end{column}
+\end{columns}
+
+# Partie 1 : Analyse en Composantes Principales
+
+## Plan de la Partie 1
+
+\tableofcontents[currentsection]
+
+## Variance expliquée
+```{r scree_acp, fig.height=4.5, fig.width=7}
+fviz_eig(
+  res_pca_norm, 
+  addlabels = TRUE,
+  barfill = "steelblue",
+  barcolor = "black",
+  main = NULL
+) + 
+  ggtitle("Éboulis des valeurs propres") +
+  theme_minimal(base_size = 12)
+```
+
+\vspace{-0.3cm}
+\small
+\textbf{Interprétation :} Les deux premiers axes expliquent 73,8\% de la variance totale. La dimension 1 (49,3\%) capture la dotation globale, la dimension 2 (24,5\%) la densité médicale.
+
+## Contributions des variables — Axe 1
+```{r contrib_dim1, fig.height=4.5, fig.width=8}
+fviz_contrib(res_pca_norm, choice = "var", axes = 1, top = 8, fill = "steelblue") +
+  ggtitle("Contributions à l'axe 1 (Dotation)") +
+  theme_minimal(base_size = 11)
+```
+
+\vspace{-0.3cm}
+\small
+\textbf{Axe 1 = DOTATION :} L'effectif total et le nombre d'établissements structurent fortement cet axe. Opposition départements bien dotés vs sous-dotés.
+
+## Contributions des variables — Axe 2
+```{r contrib_dim2, fig.height=4.5, fig.width=8}
+fviz_contrib(res_pca_norm, choice = "var", axes = 2, top = 8, fill = "steelblue") +
+  ggtitle("Contributions à l'axe 2 (Densité)") +
+  theme_minimal(base_size = 11)
+```
+
+\vspace{-0.3cm}
+\small
+\textbf{Axe 2 = DENSITÉ :} La densité moyenne des professionnels domine. Opposition départements à forte vs faible densité par habitant.
+
+## Cercle des corrélations
+```{r cercle_corr, fig.height=4.8, fig.width=8}
+fviz_pca_var(
+  res_pca_norm,
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE,
+  title = NULL
+) +
+  ggtitle("Cercle des corrélations") +
+  theme_minimal(base_size = 11)
+```
+
+\vspace{-0.3cm}
+\small
+Toutes les variables d'infrastructure pointent à droite (Dim1). La densité médicale se distingue verticalement (Dim2).
+
+## Carte des départements
+```{r carte_dept, fig.height=5, fig.width=8}
+fviz_pca_ind(
+  res_pca_norm,
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE,
+  pointsize = 1.5,
+  labelsize = 3,
+  title = NULL
+) +
+  ggtitle("Positionnement des départements") +
+  theme_minimal(base_size = 11)
+```
+
+\vspace{-0.3cm}
+\small
+\textbf{Haut-droite :} Départements ruraux bien dotés (05, 23, 48). \textbf{Gauche :} DOM-TOM sous-dotés (976, 973).
+
+## Typologie des départements — Clustering
+```{r clustering, fig.height=5, fig.width=9}
+fviz_cluster(
+  res_hcpc_norm,
+  repel = TRUE,
+  show.clust.cent = TRUE,
+  palette = "jco",
+  ggtheme = theme_minimal(base_size = 11),
+  main = NULL,
+  labelsize = 9
+) +
+  ggtitle("Classification hiérarchique — 3 groupes") +
+  theme(legend.position = "bottom")
+```
+
+\vspace{-0.3cm}
+\small
+Trois profils distincts : départements sous-dotés (DOM-TOM), moyens (majorité), et bien dotés (ruraux montagneux).
+
+## Synthèse ACP
+
+\begin{block}{Principaux résultats}
+\begin{itemize}
+  \item \textbf{Dim1 (49,3\%)} : Dotation en infrastructure sanitaire
+  \item \textbf{Dim2 (24,5\%)} : Densité médicale par habitant
+  \item \textbf{Paradoxe rural} : Départements peu peuplés mais bien dotés (Hautes-Alpes, Creuse, Lozère)
+  \item \textbf{Crise DOM-TOM} : Sous-dotation critique à Mayotte et en Guyane
+  \item \textbf{Homogénéité métropolitaine} : Majorité des départements au centre
+\end{itemize}
+\end{block}
+
+
+
+# Partie 2 : Analyse des Correspondances Multiples
+
+## Plan de la Partie 2
+
+\tableofcontents[currentsection]
+
+## Variance expliquée — ACM
+```{r scree_acm, fig.height=4.5, fig.width=7}
+fviz_screeplot(
+  res_mca,
+  addlabels = TRUE,
+  barfill = "steelblue",
+  barcolor = "black",
+  ylim = c(0, 50),
+  title = NULL
+) +
+  ggtitle("Éboulis des valeurs propres (ACM)") +
+  theme_minimal(base_size = 12)
+```
+
+\vspace{-0.3cm}
+\small
+Les deux premiers axes capturent 44,2\% de l'inertie totale. Dispersion typique d'une ACM avec variables qualitatives.
+
+## Contributions à la Dimension 1
+```{r acm_contrib1, fig.height=4.5, fig.width=8}
+fviz_contrib(
+  res_mca, choice = "var", axes = 1, top = 12, fill = "steelblue"
+) + 
+  ggtitle("Modalités structurant l'axe 1") +
+  theme_minimal(base_size = 10)
+```
+
+\vspace{-0.3cm}
+\small
+Opposition entre modalités extrêmes : effectifs très élevés vs très faibles, forte vs faible densité.
+
+## Contributions à la Dimension 2
+```{r acm_contrib2, fig.height=4.5, fig.width=8}
+fviz_contrib(
+  res_mca, choice = "var", axes = 2, top = 12, fill = "steelblue"
+) + 
+  ggtitle("Modalités structurant l'axe 2") +
+  theme_minimal(base_size = 10)
+```
+
+\vspace{-0.3cm}
+\small
+Axe 2 distingue les modalités d'équipement (moyen vs faible) et certaines catégories d'effectifs.
+
+## Carte des modalités
+```{r acm_modalites, fig.height=5.5, fig.width=9}
+fviz_mca_var(
+  res_mca,
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE,
+  select.var = list(contrib = 15),
+  ggtheme = theme_minimal(base_size = 10),
+  title = NULL,
+  labelsize = 3.5
+) +
+  ggtitle("Positionnement des modalités principales")
+```
+
+\vspace{-0.3cm}
+\small
+Les modalités extrêmes s'éloignent du centre. Effet similaire à l'effet Guttman sur l'axe 1 sans en avoir la structure en courbe.
+
+## Biplot — Variables et individus
+```{r acm_biplot, fig.height=5.5, fig.width=10}
+fviz_mca_biplot(
+  res_mca,
+  label = "var",
+  geom.ind = "point",
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  alpha.ind = 0.25,
+  pointsize.ind = 0.8,
+  col.var = "black",
+  labelsize = 3.5,
+  repel = TRUE,
+  invisible = "quali.sup",
+  title = NULL
+) +
+  ggtitle("Biplot ACM — Vue d'ensemble") +
+  theme_minimal(base_size = 10)
+```
+
+\vspace{-0.3cm}
+\small
+Superposition des modalités et des observations. Les individus se répartissent selon leurs profils.
+
+## Synthèse ACM
+
+\begin{block}{Principaux résultats}
+\begin{itemize}
+  \item \textbf{Dim1} : Opposition effectifs élevés/forte densité vs faibles effectifs/faible densité
+  \item \textbf{Dim2} : Différenciation selon l'équipement sanitaire
+  \item \textbf{Effet Guttman} : Gradient d'intensité visible (faible → moyen → élevé)
+  \item \textbf{Complémentarité avec l'ACP} : Vision catégorielle des disparités
+\end{itemize}
+\end{block}
+
+
+# Conclusion
+
+## Principaux enseignements
+
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\textbf{Disparités territoriales marquées}
+\begin{itemize}
+  \item DOM-TOM en crise sanitaire
+  \item Départements ruraux résilients
+  \item Métropole globalement homogène
+\end{itemize}
+\end{column}
+\end{columns}
+
+## Merci pour votre attention
+
+\begin{center}
+\Huge Questions ?
+
+\vspace{1.5cm}
+
+\normalsize
+\textit{Données : AMELI (data.gouv.fr) — INSEE}
+
+\textit{Outils : R, FactoMineR, factoextra}
+\end{center}
