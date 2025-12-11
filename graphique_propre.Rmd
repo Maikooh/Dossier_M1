@@ -1,0 +1,375 @@
+---
+title: "graphique_propre"
+output: beamer_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+# Chargement des packages
+library(tidyverse)
+library(FactoMineR)
+library(factoextra)
+library(ggplot2)
+library(ggrepel)
+library(cluster)
+```
+
+# 1 ACP: 
+
+## Charger les données ACP
+
+```{r}
+# Charger la base de données ACP
+base_acp <- readRDS("./data_propre/base_acp.rds")
+
+
+pop_dept <- tribble(
+  ~departement, ~population,
+  "01", 664500,
+  "02", 529500,
+  "03", 334800,
+  "04", 166800,
+  "05", 141700,
+  "06", 1094300,
+  "07", 331500,
+  "08", 270900,
+  "09", 154200,
+  "10", 311000,
+  "11", 379100,
+  "12", 282200,
+  "13", 2043100,
+  "14", 696400,
+  "15", 144100,
+  "16", 351500,
+  "17", 664000,
+  "18", 302500,
+  "19", 238600,
+  "21", 537900,
+  "22", 614500,
+  "23", 114300,
+  "24", 417300,
+  "25", 596900,
+  "26", 524200,
+  "27", 603200,
+  "28", 434300,
+  "29", 937100,
+  "2A", 161900,
+  "2B", 183100,
+  "30", 774800,
+  "31", 1434300,
+  "32", 195600,
+  "33", 1671100,
+  "34", 1221800,
+  "35", 1107900,
+  "36", 219200,
+  "37", 613400,
+  "38", 1298600,
+  "39", 260700,
+  "40", 418500,
+  "41", 330000,
+  "42", 771500,
+  "43", 228900,
+  "44", 1471500,
+  "45", 691300,
+  "46", 175800,
+  "47", 338500,
+  "48", 76800,
+  "49", 824900,
+  "50", 496300,
+  "51", 573800,
+  "52", 173800,
+  "53", 306200,
+  "54", 735600,
+  "55", 172100,
+  "56", 785900,
+  "57", 1046200,
+  "58", 199500,
+  "59", 2610700,
+  "60", 832400,
+  "61", 276900,
+  "62", 1470200,
+  "63", 678800,
+  "64", 693400,
+  "65", 230100,
+  "66", 488000,
+  "67", 1153200,
+  "68", 769400,
+  "69", 1927900,
+  "70", 236100,
+  "71", 556100,
+  "72", 570600,
+  "73", 442700,
+  "74", 863300,
+  "75", 2139200,
+  "76", 1265700,
+  "77", 1432900,
+  "78", 1446400,
+  "79", 378200,
+  "80", 574100,
+  "81", 395100,
+  "82", 261400,
+  "83", 1114800,
+  "84", 571300,
+  "85", 706400,
+  "86", 440300,
+  "87", 377000,
+  "88", 360700,
+  "89", 335800,
+  "90", 138800,
+  "91", 1351900,
+  "92", 1644700,
+  "93", 1658200,
+  "94", 1418300,
+  "95", 1276500,
+  "971", 380900,
+  "972", 366900,
+  "973", 295500,
+  "974", 876000,
+  "976", 310000
+)
+
+# Départements outliers à exclure (métropoles majeures)
+dept_a_exclure <- c("13", "59", "69", "75")
+
+# Créer la base normalisée par la population (pour 100 000 habitants)
+base_acp_normalized <- base_acp %>%
+  filter(
+    annee == 2024,
+    !departement %in% dept_a_exclure
+  ) %>%
+  # Joindre la population
+  left_join(pop_dept, by = "departement") %>%
+  # Agréger par département
+  group_by(departement) %>%
+  summarise(
+    # Pour 100 000 habitants
+    effectif_pour_100k = sum(effectif, na.rm = TRUE) / first(population) * 100000,
+    densite_moyenne = mean(densite, na.rm = TRUE),
+    nb_total_pour_100k = first(nb_total) / first(population) * 100000,
+    nb_hop_pour_100k = first(nb_hop) / first(population) * 100000,
+    nb_prives_pour_100k = first(nb_prives) / first(population) * 100000,
+    nb_ambu_pour_100k = first(nb_ambu) / first(population) * 100000,
+    nb_had_pour_100k = first(nb_had) / first(population) * 100000,
+    nb_msp_pour_100k = first(nb_msp) / first(population) * 100000,
+    .groups = "drop"
+  ) %>%
+  ungroup() %>%
+  column_to_rownames("departement")
+```
+
+## Réaliser l'ACP
+
+```{r}
+# Réaliser l'ACP avec normalisation (scale.unit = TRUE)
+res_pca_norm <- PCA(
+  base_acp_normalized, 
+  scale.unit = TRUE,  # Centre-réduction des variables
+  graph = FALSE
+)
+```
+
+```{r}
+# 6.1 Éboulis des valeurs propres (Scree plot)
+p1 <- fviz_eig(
+  res_pca_norm, 
+  addlabels = TRUE,
+  barfill = "steelblue",
+  barcolor = "black",
+  main = "Scree plot - ACP normalisée par population"
+)
+print(p1)
+```
+
+
+## Contributions des variables à l'axe 1
+
+```{r}
+fviz_contrib(res_pca_norm,
+             choice = "var",
+             axes = 1,
+             top = 10) +
+  ggtitle("Contributions des variables à l’axe 1")
+
+```
+
+## Contributions des variables à l'axe 2
+
+```{r}
+fviz_contrib(res_pca_norm,
+             choice = "var",
+             axes = 2,
+             top = 10) +
+  ggtitle("Contributions des variables à l’axe 2")
+
+```
+
+## Cercle des corrélations
+
+```{r}
+# 6.2 Cercle des corrélations (variables)
+p2 <- fviz_pca_var(
+  res_pca_norm,
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE,
+  title = "Variables - ACP normalisée"
+)
+print(p2)
+```
+
+### carte des individus 
+
+```{r}
+# 6.3 Carte des individus (départements)
+p3 <- fviz_pca_ind(
+  res_pca_norm,
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = F,
+  pointsize = 1,
+  title = "Départements - Dotation sanitaire pour 100k hab"
+)
+print(p3)
+```
+
+### clustering automatique des profils sanitaires
+
+```{r}
+# Clustering automatique sur l'ACP
+res_hcpc_norm <- HCPC(
+  res_pca_norm, 
+  nb.clust = -1,     # Choix automatique du nombre de clusters
+  graph = FALSE
+)
+```
+
+```{r}
+# Carte factorielle avec clusters colorés
+p4 <- fviz_cluster(
+  res_hcpc_norm,
+  repel = F,
+  show.clust.cent = TRUE,
+  palette = "jco",
+  ggtheme = theme_minimal(),
+  main = "Clustering - Profils sanitaires départementaux"
+)
+print(p4)
+```
+
+# ACM 
+
+## Charger les données
+```{r}
+# Charger la base ACM
+base_acm <- readRDS("./datafinal/base_acm.rds")
+```
+
+## Réaliser l'ACM 
+
+```{r}
+# ACM avec les 3 premières colonnes en supplémentaires
+# Colonnes 1-3 : annee, profession_sante, departement (supplémentaires)
+# Colonnes 4-6 : classe_effectif, classe_densite, classe_equip (ACTIVES)
+
+res_mca <- MCA(
+  base_acm,
+  quali.sup = 1:3,
+  graph = FALSE
+)
+```
+
+## Valeur propres
+
+```{r screeplot, fig.height=6, fig.width=9}
+fviz_screeplot(
+  res_mca,
+  addlabels = TRUE,
+  barfill = "steelblue",
+  barcolor = "black",
+  ylim = c(0, 50),
+  title = "Éboulis des valeurs propres (ACM)"
+)
+```
+
+## Contributions à la Dimension 1
+```{r contrib1, fig.height=6, fig.width=9}
+fviz_contrib(
+  res_mca,
+  choice = "var",
+  axes = 1,
+  top = 15,
+  fill = "steelblue"
+) + 
+  ggtitle("Contributions des modalités à la Dimension 1") +
+  theme_minimal()
+```
+
+
+## Contributions à la Dimension 2
+```{r contrib2, fig.height=6, fig.width=9}
+fviz_contrib(
+  res_mca,
+  choice = "var",
+  axes = 2,
+  top = 15,
+  fill = "steelblue"
+) + 
+  ggtitle("Contributions des modalités à la Dimension 2") +
+  theme_minimal()
+```
+
+
+## Représentation des modalités
+```{r variables, fig.height=7, fig.width=10}
+fviz_mca_var(
+  res_mca,
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE,
+  select.var = list(contrib = 15),
+  ggtheme = theme_minimal(),
+  title = "ACM — Modalités principales",
+  labelsize = 4
+) +
+  theme(text = element_text(size = 12))
+```
+
+
+## Vue d'ensemble du nuage d'individus
+```{r individus_complet, fig.height=7, fig.width=10}
+fviz_mca_ind(
+  res_mca,
+  alpha.ind = 0.15,
+  pointsize = 0.5,
+  geom = "point",
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  title = "ACM — Nuage d'individus ",
+  subtitle = "Couleur = qualité de représentation (cos²)"
+) +
+  theme_minimal(base_size = 13)
+```
+
+## Biplot classique
+```{r biplot_classique, fig.height=8, fig.width=11}
+fviz_mca_biplot(
+  res_mca,
+  label = "var",
+  geom.ind = "point",
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  alpha.ind = 0.3,
+  pointsize.ind = 1,
+  col.var = "black",
+  labelsize = 4.5,
+  repel = TRUE,
+  invisible = "quali.sup",
+  title = "Biplot ACM — Variables et individus",
+) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5, color = "grey40")
+  )
+```
